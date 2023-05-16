@@ -15,9 +15,10 @@
   <depend>goal_update_srvs</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>autoware_auto_mapping_msgs</depend>
   <depend>rclcpp</depend>
   <depend>tf2</depend>
-
+  <depend>lanelet2_extension</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

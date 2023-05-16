@@ -1,16 +1,18 @@
 <launch>
-　<arg name="launch_driver" default="true"/>
-　<arg name="current_pose" default="external/current_pose_talker/pose"/>
-　<arg name="goal_pose" default="/planning/mission_planning/goal"/>
-　
-　<include file="$(find-pkg-share current_pose_talker)/launch/current_pose_talker.launch.xml">
+  <arg name="launch_driver" default="true"/>
+  <arg name="current_pose" default="external/current_pose_talker/pose"/>
+  <arg name="ll2_map" default="map/vector_map"/>
+  <arg name="goal_pose" default="planning/mission_planning/goal"/>
+
+  <include file="$(find-pkg-share current_pose_talker)/launch/current_pose_talker.launch.xml">
     <arg name="launch_driver" value="$(var launch_driver)"/>
     <arg name="current_tf" value="/tf"/>
     <arg name="current_pose" value="$(var current_pose)"/>
   </include>
   
-　<node pkg="urgent_avoidance" exec="urgent_avoidance_planner" name="urgent_avoidance_planner" output="log" if="$(var launch_driver)">
+  <node pkg="urgent_avoidance" exec="urgent_avoidance_planner" name="urgent_avoidance_planner" output="log" if="$(var launch_driver)">
     <remap from="~/input/pose" to="$(var current_pose)"/>
+    <remap from="~/input/lanelet2_map" to="$(var ll2_map)"/>
     <remap from="~/output/goal" to="$(var goal_pose)"/>
   </node>
 </launch>
