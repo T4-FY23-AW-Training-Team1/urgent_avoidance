@@ -1,6 +1,6 @@
-micarray_driver:
+urgent_avoidance_planner:
   ros__parameters:
-    search_starting_distance: 20.0 # in meters
+    search_starting_distance: 5.0 # in meters
     rear_angle_range_min: 120.0 # 0 to 359
     rear_angle_range_max: 240.0 # 0 to 359, larger than rear_angle_range_min
     direction_duration_threshold: 3.0 # in seconds

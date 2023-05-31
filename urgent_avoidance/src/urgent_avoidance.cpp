@@ -107,6 +107,9 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             // get shoulder lanelets
             all_lanelets = lanelet::utils::query::laneletLayer(ll_map);
             shoulder_lanelets = lanelet::utils::query::shoulderLanelets(all_lanelets);
+            if(shoulder_lanelets.empty()){
+                RCLCPP_WARN(this->get_logger(), "No road shoulder is found!!");
+            }
         }
 
         void onTrajectory(const autoware_auto_planning_msgs::msg::Trajectory::SharedPtr msg){
@@ -287,9 +290,9 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             
             lanelet::ConstLanelet target_shoulder_lanelet;
             bool shoulderFound = false;
-            RCLCPP_INFO(this->get_logger(), "Ahead initialize done");
 
-            for (size_t i = findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position); !shoulderFound && i < last_trajectory_->points.size()-1; ++i) {
+            RCLCPP_INFO(this->get_logger(), "i starts from %ld and ends at %ld", findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position), last_trajectory_->points.size()-1);
+            for (size_t i = findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position); !shoulderFound && (i < last_trajectory_->points.size()-1); ++i) {
                 const auto& point1 = last_trajectory_->points[i];
                 const auto& point2 = last_trajectory_->points[i+1];
 
@@ -299,12 +302,12 @@ class UrgentAvoidancePlanner : public rclcpp::Node
 
                 total_length += std::sqrt(dx*dx + dy*dy + dz*dz);
 
+                RCLCPP_INFO(this->get_logger(), "Current total_length has %lf meters (i = %ld out of %ld), against search_starting_distance %lf meters", total_length, i, last_trajectory_->points.size(), search_starting_distance);
                 if(total_length >= search_starting_distance){
                     shoulderFound = lanelet::utils::query::getClosestLanelet(shoulder_lanelets, point2.pose, &target_shoulder_lanelet);
                     shoulder_pose_stamped->pose = lanelet::utils::getClosestCenterPose(target_shoulder_lanelet, point2.pose.position);
                 }
             }
-
             return shoulderFound;
         }
 
