@@ -4,7 +4,8 @@
   <arg name="ll2_map" default="map/vector_map"/>
   <arg name="trajectory" default="/planning/scenario_planning/trajectory"/>
   <arg name="sound_source_direction" default="external/perception/sound_source_direction"/>
-  <arg name="goal_pose" default="planning/mission_planning/goal"/>
+  <arg name="new_goal_pose" default="planning/mission_planning/goal"/>
+  <arg name="expected_goal_pose" default="planning/mission_planning/goal"/>
 
   <include file="$(find-pkg-share current_pose_talker)/launch/current_pose_talker.launch.xml">
     <arg name="launch_driver" value="$(var launch_driver)"/>
@@ -17,7 +18,8 @@
     <remap from="~/input/lanelet2_map" to="$(var ll2_map)"/>
     <remap from="~/input/trajectory" to="$(var trajectory)"/>
     <remap from="~/input/sound_source_direction" to="$(var sound_source_direction)"/>
-    <remap from="~/output/goal" to="$(var goal_pose)"/>
+    <remap from="~/input/goal" to="$(var expected_goal_pose)"/>
+    <remap from="~/output/goal" to="$(var new_goal_pose)"/>
     <param from="$(find-pkg-share urgent_avoidance)/config/urgent_avoidance.param.yaml"/>
   </node>
 </launch>
