@@ -50,6 +50,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             is_emergency_vehicle_approaching = false;
             is_arrived = false;
             node_state = AvoidanceState::BEAWARE;
+            last_current_pose_stamped_ = std::make_shared<geometry_msgs::msg::PoseStamped>();
             goal_pose = std::make_shared<geometry_msgs::msg::PoseStamped>();
             if(goal_pose == nullptr){
                 RCLCPP_INFO(this->get_logger(), "goal_pose is nullptr from the start");
@@ -66,8 +67,11 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             this->get_parameter("direction_duration_threshold", direction_duration_threshold);
 
             // Initialize publisher and subscriber
-            pose_subscription_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "~/input/pose", 10, std::bind(&UrgentAvoidancePlanner::onCurrentPoseStamped, this, std::placeholders::_1));
+            tf_subscription_ = this->create_subscription<tf2_msgs::msg::TFMessage>(
+            "~/input/tf", 10, std::bind(&UrgentAvoidancePlanner::tf_callback, this, std::placeholders::_1));
+
+            //pose_subscription_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+            //"~/input/pose", 10, std::bind(&UrgentAvoidancePlanner::onCurrentPoseStamped, this, std::placeholders::_1));
 
             map_bin_subscription_ = this->create_subscription<autoware_auto_mapping_msgs::msg::HADMapBin>(
             "~/input/lanelet2_map", rclcpp::QoS{1}.transient_local(),
@@ -103,11 +107,28 @@ class UrgentAvoidancePlanner : public rclcpp::Node
         }
 
     private:
+        void tf_callback(const tf2_msgs::msg::TFMessage::SharedPtr msg){
+            //RCLCPP_INFO(this->get_logger(), "TF is loaded\n");
+            for (const auto& transform : msg->transforms){
+                // Check if child_frame_id is "base_link"
+                if (transform.child_frame_id == "base_link"){
+                    // Extract header
+                    last_current_pose_stamped_->header = transform.header;
+
+                    // Extract transform
+                    last_current_pose_stamped_->pose.position.x = transform.transform.translation.x;
+                    last_current_pose_stamped_->pose.position.y = transform.transform.translation.y;
+                    last_current_pose_stamped_->pose.position.z = transform.transform.translation.z;
+                    last_current_pose_stamped_->pose.orientation = transform.transform.rotation;
+                }
+            }
+        }
+        /*
         void onCurrentPoseStamped(const geometry_msgs::msg::PoseStamped::SharedPtr msg){
             // Save the latest vehicle pose
             last_current_pose_stamped_ = msg;
         }
-
+        */
         void onMapBin(const autoware_auto_mapping_msgs::msg::HADMapBin::ConstSharedPtr msg){
             // get lanelets (in binary)
             lanelet::LaneletMapPtr ll_map(new lanelet::LaneletMap);
@@ -377,7 +398,8 @@ class UrgentAvoidancePlanner : public rclcpp::Node
         }
 
         rclcpp::TimerBase::SharedPtr timer_;
-        rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_subscription_;
+        rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr tf_subscription_;
+        //rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_subscription_;
         rclcpp::Subscription<autoware_auto_mapping_msgs::msg::HADMapBin>::SharedPtr map_bin_subscription_;
         rclcpp::Subscription<autoware_auto_planning_msgs::msg::Trajectory>::SharedPtr trajectory_subscription_;
         rclcpp::Subscription<acoustics_msgs::msg::SoundSourceDirection>::SharedPtr sound_source_direction_subscription_;
