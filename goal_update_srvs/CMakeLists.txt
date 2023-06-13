@@ -13,7 +13,7 @@ ament_auto_find_build_dependencies()
 # find_package(<dependency> REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "srv/FindRoadShoulderGoal.srv"
+  "srv/ChangeGoal.srv"
   DEPENDENCIES
     std_msgs
     geometry_msgs
