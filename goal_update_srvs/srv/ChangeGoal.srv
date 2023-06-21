@@ -1,4 +1,4 @@
 geometry_msgs/PoseStamped current_pose
 ---
 geometry_msgs/PoseStamped goal_pose
-bool is_road_shoulder_found
+bool is_goal_found

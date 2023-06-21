@@ -17,10 +17,12 @@
 #include <autoware_adapi_v1_msgs/msg/operation_mode_state.hpp>
 #include <autoware_adapi_v1_msgs/srv/change_operation_mode.hpp>
 #include <autoware_adapi_v1_msgs/msg/route_state.hpp>
+#include <autoware_adapi_v1_msgs/msg/motion_state.hpp>
 
 // These are defined only in here
 enum class AvoidanceState{
     BEWARE = -1,
+    STOPPING, 
     SEARCHING_GOAL,
     REQUESTING_AVOIDANCE,
     AVOIDING,
@@ -31,6 +33,7 @@ enum class AvoidanceState{
 using ChangeGoal = goal_update_srvs::srv::ChangeGoal;
 using OperationModeState = autoware_adapi_v1_msgs::msg::OperationModeState; 
 using RouteState = autoware_adapi_v1_msgs::msg::RouteState;
+using MotionState = autoware_adapi_v1_msgs::msg::MotionState;
 using ChangeOperationMode = autoware_adapi_v1_msgs::srv::ChangeOperationMode;
 using motion_utils::findNearestIndex;
 
@@ -42,7 +45,8 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             // Initialize parameters
             emergency_vehicle_service_flag = false;
             emergency_vehicle_sound_flag = false;
-            is_arrived = false;
+            last_routing_state_ = std::make_shared<RouteState>();
+            last_motion_state_ = std::make_shared<MotionState>();
             node_state = AvoidanceState::BEWARE;
             last_current_pose_stamped_ = std::make_shared<geometry_msgs::msg::PoseStamped>();
             goal_pose = std::make_shared<geometry_msgs::msg::PoseStamped>();
@@ -85,11 +89,17 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             routing_state_subscription_ = this->create_subscription<RouteState>("/api/routing/state", rclcpp::QoS{1}.transient_local(),
             std::bind(&UrgentAvoidancePlanner::onRoutingState, this, std::placeholders::_1));
 
+            motion_state_subscription_ = this->create_subscription<MotionState>("/api/motion/state", rclcpp::QoS{1}.transient_local(),
+            std::bind(&UrgentAvoidancePlanner::onMotionState, this, std::placeholders::_1));
+
             expected_goal_subscription_ = create_subscription<geometry_msgs::msg::PoseStamped>(
             "~/input/goal", 3, std::bind(&UrgentAvoidancePlanner::onExpectedGoal, this, std::placeholders::_1));
             
             client_change_to_autonomous_ = this->create_client<ChangeOperationMode>(
                 "/api/operation_mode/change_to_autonomous", rmw_qos_profile_services_default);
+
+            client_change_to_stop_ = this->create_client<ChangeOperationMode>(
+                "/api/operation_mode/change_to_stop", rmw_qos_profile_services_default);
 
             publisher_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("~/output/goal", 10);
 
@@ -141,7 +151,11 @@ class UrgentAvoidancePlanner : public rclcpp::Node
 
         void onRoutingState(const RouteState::SharedPtr msg){
             // check whether the vehicle is arrived
-            is_arrived = (msg->state == RouteState::ARRIVED);
+            last_routing_state_ = msg;
+        }
+
+        void onMotionState(const MotionState::SharedPtr msg){
+            last_motion_state_ = msg;
         }
 
         void onSoundSourceDirection(const acoustics_msgs::msg::SoundSourceDirection::SharedPtr msg){
@@ -180,10 +194,25 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             switch(node_state){
                 case AvoidanceState::BEWARE:
                     if(is_emergency_vehicle_approaching()){
-                        node_state = AvoidanceState::SEARCHING_GOAL;
-                    }else{
-                        break; // If the condition is met, the procedure can go next immediately (Only for this BEWARE state)
+                        if (!client_change_to_stop_->service_is_ready()) {
+                            RCLCPP_INFO(this->get_logger(), "client is unavailable");
+                        }
+                        else{
+                            RCLCPP_INFO(this->get_logger(), "Changing to stop mode");
+                            auto request = std::make_shared<ChangeOperationMode::Request>();
+                            client_change_to_stop_->async_send_request(request);
+                            //node_state = AvoidanceState::SEARCHING_GOAL;
+                            node_state = AvoidanceState::STOPPING;
+                            timer_count = 0;
+                        }
                     }
+                    break;
+
+                case AvoidanceState::STOPPING:
+                    if(++timer_count > 10){
+                        node_state = AvoidanceState::SEARCHING_GOAL;
+                    }
+                    break;
 
                 case AvoidanceState::SEARCHING_GOAL:
                     if(!is_emergency_vehicle_approaching()){
@@ -214,7 +243,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         publisher_->publish(*last_expected_goal_pose_stamped_); // Set back the goal to the original goal
                         break;
                     }*/
-                    if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::STOP && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
+                    if(last_motion_state_->state == MotionState::STOPPED && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
                         RCLCPP_INFO(this->get_logger(), "Request mode change (avoidance)");
                         if (!client_change_to_autonomous_->service_is_ready()) {
                             RCLCPP_INFO(this->get_logger(), "client is unavailable");
@@ -235,7 +264,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         publisher_->publish(*last_expected_goal_pose_stamped_); // Set back the goal to the original goal
                         break;
                     }*/
-                    if(is_arrived == true){
+                    if(last_routing_state_->state == RouteState::ARRIVED){
                         RCLCPP_INFO(this->get_logger(), "Pull over seems to be finished");
                         node_state = AvoidanceState::WAITING;
                         emergency_vehicle_service_flag = false;
@@ -245,7 +274,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
 
                 case AvoidanceState::WAITING:
                     if(!is_emergency_vehicle_approaching()){
-                        if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS){
+                        if(last_motion_state_->state == MotionState::MOVING){
                             RCLCPP_INFO(this->get_logger(), "Emegency vehicle is gone, but the vehicle has not stopped yet.");
                         }else{
                             RCLCPP_INFO(this->get_logger(), "Emegency vehicle is gone. Go back to the original goal.");
@@ -263,7 +292,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         break;
                     }
                     else{
-                        if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::STOP && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
+                        if(last_motion_state_->state == MotionState::STOPPED && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
                             RCLCPP_INFO(this->get_logger(), "Request mode change (recover)");
                             if (!client_change_to_autonomous_->service_is_ready()) {
                                 RCLCPP_INFO(this->get_logger(), "client is unavailable");
@@ -275,7 +304,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                                 //node_state = AvoidanceState::BEWARE;
                             }
                         }else{
-                            if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS && last_operation_mode_state_->is_in_transition == false){
+                            if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS && last_operation_mode_state_->is_in_transition == false && last_motion_state_->state == MotionState::MOVING){
                                 node_state = AvoidanceState::BEWARE;
                             }
                         }
@@ -301,7 +330,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
             lanelet::ConstLanelet target_shoulder_lanelet;
             bool shoulderFound = false;
 
-            RCLCPP_INFO(this->get_logger(), "i starts from %ld and ends at %ld", findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position), last_trajectory_->points.size()-1);
+            //RCLCPP_INFO(this->get_logger(), "i starts from %ld and ends at %ld", findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position), last_trajectory_->points.size()-1);
             for (size_t i = findNearestIndex(last_trajectory_->points, last_current_pose_stamped_->pose.position); !shoulderFound && (i < last_trajectory_->points.size()-1); ++i) {
                 const auto& point1 = last_trajectory_->points[i];
                 const auto& point2 = last_trajectory_->points[i+1];
@@ -312,7 +341,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
 
                 total_length += std::sqrt(dx*dx + dy*dy + dz*dz);
 
-                RCLCPP_INFO(this->get_logger(), "Current total_length has %lf meters (i = %ld out of %ld), against search_starting_distance %lf meters", total_length, i, last_trajectory_->points.size(), search_starting_distance);
+                //RCLCPP_INFO(this->get_logger(), "Current total_length has %lf meters (i = %ld out of %ld), against search_starting_distance %lf meters", total_length, i, last_trajectory_->points.size(), search_starting_distance);
                 if(total_length >= search_starting_distance){
                     shoulderFound = lanelet::utils::query::getClosestLanelet(shoulder_lanelets, point2.pose, &target_shoulder_lanelet);
                     shoulder_pose_stamped->pose = lanelet::utils::getClosestCenterPose(target_shoulder_lanelet, point2.pose.position);
@@ -328,23 +357,27 @@ class UrgentAvoidancePlanner : public rclcpp::Node
         rclcpp::Subscription<acoustics_msgs::msg::SoundSourceDirection>::SharedPtr sound_source_direction_subscription_;
         rclcpp::Subscription<OperationModeState>::SharedPtr operation_mode_subscription_;
         rclcpp::Subscription<RouteState>::SharedPtr routing_state_subscription_;
+        rclcpp::Subscription<MotionState>::SharedPtr motion_state_subscription_;
         rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr expected_goal_subscription_;
         rclcpp::Service<ChangeGoal>::SharedPtr service_;
         rclcpp::Client<ChangeOperationMode>::SharedPtr client_change_to_autonomous_;
+        rclcpp::Client<ChangeOperationMode>::SharedPtr client_change_to_stop_;
         rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr publisher_;
         geometry_msgs::msg::PoseStamped::SharedPtr last_current_pose_stamped_;
         geometry_msgs::msg::PoseStamped::SharedPtr last_expected_goal_pose_stamped_;
         geometry_msgs::msg::PoseStamped::SharedPtr goal_pose;
         OperationModeState::SharedPtr last_operation_mode_state_;
+        MotionState::SharedPtr last_motion_state_;
+        RouteState::SharedPtr last_routing_state_;
         autoware_auto_planning_msgs::msg::Trajectory::SharedPtr last_trajectory_;
         lanelet::ConstLanelets all_lanelets;
         lanelet::ConstLanelets shoulder_lanelets;
         bool emergency_vehicle_sound_flag;
         bool emergency_vehicle_service_flag;
-        bool is_arrived;
         AvoidanceState node_state;
         // Defined in yaml
         double search_starting_distance;
+        int timer_count;
         double rear_angle_range_min;
         double rear_angle_range_max;
         double direction_duration_threshold;
