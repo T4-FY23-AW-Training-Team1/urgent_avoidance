@@ -222,7 +222,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                     if(last_current_pose_stamped_){
                         if(goal_pose){
                             if(set_goal_to_road_shoulder_ahead(*last_current_pose_stamped_, goal_pose)){
-                                RCLCPP_INFO(this->get_logger(), "Set goal to road shoulder ahead");
+                                RCLCPP_INFO(this->get_logger(), "Set goal to road shoulder ahead. Change operation mode manually.");
                                 publisher_->publish(*goal_pose);
                                 node_state = AvoidanceState::REQUESTING_AVOIDANCE;
                             }else{
@@ -243,17 +243,9 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         publisher_->publish(*last_expected_goal_pose_stamped_); // Set back the goal to the original goal
                         break;
                     }*/
-                    if(last_motion_state_->state == MotionState::STOPPED && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
-                        RCLCPP_INFO(this->get_logger(), "Request mode change (avoidance)");
-                        if (!client_change_to_autonomous_->service_is_ready()) {
-                            RCLCPP_INFO(this->get_logger(), "client is unavailable");
-                        }
-                        else{
-                            RCLCPP_INFO(this->get_logger(), "Changed to autonomous mode (avoidance)");
-                            auto request = std::make_shared<ChangeOperationMode::Request>();
-                            client_change_to_autonomous_->async_send_request(request);
-                            node_state = AvoidanceState::AVOIDING;
-                        }
+                    if(last_operation_mode_state_->mode == OperationModeState::AUTONOMOUS && last_motion_state_->state == MotionState::MOVING){
+                        RCLCPP_INFO(this->get_logger(), "Changed to autonomous mode (avoidance)");
+                        node_state = AvoidanceState::AVOIDING;
                     }
                     break;
 
@@ -277,7 +269,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         if(last_motion_state_->state == MotionState::MOVING){
                             RCLCPP_INFO(this->get_logger(), "Emegency vehicle is gone, but the vehicle has not stopped yet.");
                         }else{
-                            RCLCPP_INFO(this->get_logger(), "Emegency vehicle is gone. Go back to the original goal.");
+                            RCLCPP_INFO(this->get_logger(), "Emegency vehicle is gone. Go back to the original goal. Change operation mode manually.");
                             node_state = AvoidanceState::REQUESTING_RECOVER;
                         } 
                     }else{
@@ -292,21 +284,8 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                         break;
                     }
                     else{
-                        if(last_motion_state_->state == MotionState::STOPPED && last_operation_mode_state_->is_in_transition == false && last_operation_mode_state_->is_autonomous_mode_available == true){
-                            RCLCPP_INFO(this->get_logger(), "Request mode change (recover)");
-                            if (!client_change_to_autonomous_->service_is_ready()) {
-                                RCLCPP_INFO(this->get_logger(), "client is unavailable");
-                            }
-                            else{
-                                RCLCPP_INFO(this->get_logger(), "Changed to autonomous mode (recover)");
-                                auto request = std::make_shared<ChangeOperationMode::Request>();
-                                client_change_to_autonomous_->async_send_request(request);
-                                //node_state = AvoidanceState::BEWARE;
-                            }
-                        }else{
-                            if(last_operation_mode_state_->mode == autoware_adapi_v1_msgs::msg::OperationModeState::AUTONOMOUS && last_operation_mode_state_->is_in_transition == false && last_motion_state_->state == MotionState::MOVING){
-                                node_state = AvoidanceState::BEWARE;
-                            }
+                        if(last_operation_mode_state_->mode == OperationModeState::AUTONOMOUS && last_motion_state_->state == MotionState::MOVING){
+                            node_state = AvoidanceState::BEWARE;
                         }
                     }
                     break;
