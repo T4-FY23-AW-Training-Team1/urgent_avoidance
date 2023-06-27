@@ -209,7 +209,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
                     break;
 
                 case AvoidanceState::STOPPING:
-                    if(++timer_count > 10){
+                    if(++timer_count > 10 && last_motion_state_->state == MotionState::STOPPED){
                         node_state = AvoidanceState::SEARCHING_GOAL;
                     }
                     break;
@@ -322,7 +322,7 @@ class UrgentAvoidancePlanner : public rclcpp::Node
 
                 //RCLCPP_INFO(this->get_logger(), "Current total_length has %lf meters (i = %ld out of %ld), against search_starting_distance %lf meters", total_length, i, last_trajectory_->points.size(), search_starting_distance);
                 if(total_length >= search_starting_distance){
-                    shoulderFound = lanelet::utils::query::getClosestLanelet(shoulder_lanelets, point2.pose, &target_shoulder_lanelet);
+                    shoulderFound = lanelet::utils::query::getClosestLaneletWithConstrains(shoulder_lanelets, point2.pose, &target_shoulder_lanelet, 50.0, 2*M_PI);
                     shoulder_pose_stamped->pose = lanelet::utils::getClosestCenterPose(target_shoulder_lanelet, point2.pose.position);
                 }
             }
